@@ -291,30 +291,20 @@ mod tests {
     }
 
     #[test]
-    fn halation_switch_matches_the_two_plugins_in_sequence() {
+    fn halation_glows_red_around_highlights() {
         let film = host("marcs-film-emulator.wasm");
-        let hal = host("marcs-film-emulator-halation.wasm");
         let (w, h, ov) = (448, 256, 96);
         for depth in [8, 32] {
             let orig: Vec<f32> = disc(w, h).iter().map(|v| if depth == 32 { v.powf(2.2) } else { *v }).collect();
-            // the two plug-ins one after the other, the host rounding to 8 bits in between
-            let mut seq = orig.clone();
-            run_band(&hal, &mut seq, w, h, ov, depth, "{}");
-            if depth == 8 {
-                seq = seq.iter().map(|v| (v * 255.0).round() / 255.0).collect();
-            }
-            run_band(&film, &mut seq, w, h, 0, depth, r#"{"halation":"Off"}"#);
-            // the switch
-            let mut one = orig.clone();
-            run_band(&film, &mut one, w, h, ov, depth, r#"{"halation":"On"}"#);
-            // and, as a control, the film without the glow
-            let mut off = orig.clone();
-            run_band(&film, &mut off, w, h, ov, depth, r#"{"halation":"Off"}"#);
-            let (seq, one, off) = (inner(&seq, w, h, ov), inner(&one, w, h, ov), inner(&off, w, h, ov));
-            let worst = seq.iter().zip(&one).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
-            assert!(worst <= 1e-6, "{depth}-bit: switch differs from the two plug-ins by {worst}");
-            let glow = one.iter().zip(&off).filter(|(a, b)| (*a - *b).abs() > 1.0 / 255.0).count();
+            let (mut on, mut off) = (orig.clone(), orig.clone());
+            run_band(&film, &mut on, w, h, ov, depth, r#"{"halation":"On","grain":0}"#);
+            run_band(&film, &mut off, w, h, ov, depth, r#"{"halation":"Off","grain":0}"#);
+            let (on, off) = (inner(&on, w, h, ov), inner(&off, w, h, ov));
+            let glow = on.iter().zip(&off).filter(|(a, b)| (*a - *b).abs() > 1.0 / 255.0).count();
             assert!(glow > 1000, "{depth}-bit: the glow changed only {glow} samples");
+            // the glow is red-orange: red rises more than blue around the disc
+            let gain = |k: usize| on.chunks(4).zip(off.chunks(4)).map(|(a, b)| a[k] - b[k]).sum::<f32>();
+            assert!(gain(0) > 2.0 * gain(2), "{depth}-bit: red +{} vs blue +{}", gain(0), gain(2));
         }
     }
 
@@ -418,10 +408,10 @@ mod tests {
 
     #[test]
     fn halation_leaves_an_image_without_highlights_alone() {
-        let hal = host("marcs-film-emulator-halation.wasm");
-        let orig = ramp(0.5);
-        let mut out = orig.clone();
-        run(&hal, &mut out, 8, "{}");
-        assert_eq!(orig, out);
+        let film = host("marcs-film-emulator.wasm");
+        let (mut on, mut off) = (ramp(0.5), ramp(0.5));
+        run(&film, &mut on, 8, r#"{"halation":"On","grain":0}"#);
+        run(&film, &mut off, 8, r#"{"halation":"Off","grain":0}"#);
+        assert_eq!(on, off);
     }
 }

@@ -3,8 +3,7 @@
 Film looks for **PhotoCraft** as a WebAssembly filter plug-in (plug-in ABI v1). Twenty films in
 one dropdown – eight colour negatives, five cine stocks, two slide films, five black-and-white –
 each simulated from the curves of its manufacturer datasheet, with push/pull processing, halation
-(switchable) and film grain. The halation is also available as a plug-in of its own, for stacking
-it separately.
+(switchable) and film grain. One file, one filter.
 
 ## Download
 
@@ -29,17 +28,12 @@ Photos: [Mitchell Orr](https://unsplash.com/@mitchorr), [Alex Knight](https://un
 [Seb Zurcher](https://unsplash.com/@seb_zr) on [Unsplash](https://unsplash.com/license); rooster by
 dendoktoor on [Pixabay](https://pixabay.com/service/license-summary/).
 
-## The plug-ins
+## The plug-in
 
-| File | Menu entry | What it does |
-|---|---|---|
-| `marcs-film-emulator.wasm` | Filter › Plug-ins › Marcs Film Emulator… | Halation (switch) → film colour and tone (dropdown) → grain |
-| `marcs-film-emulator-halation.wasm` | Filter › Plug-ins › Marcs Film Emulator – Halation… | The same glow alone, for stacking it as a separate smart filter (optional) |
-
-Install via **Filter › Plug-ins › Install Plug-in…**. The film plug-in is all you need; with its
-Halation switch on, the glow is added before the film, so it goes through the film's colour like
-the rest of the light. The separate halation plug-in gives the same result when applied first (below
-the film in the smart filter list), and lets you toggle or restack it on its own.
+`marcs-film-emulator.wasm`, menu **Filter › Plug-ins › Marcs Film Emulator…**: halation (switch) →
+film colour and tone (dropdown, push/pull) → grain. With the Halation switch on, the glow is added
+before the film, so it goes through the film's colour like the rest of the light. Install via
+**Filter › Plug-ins › Install Plug-in…**.
 
 ## The films
 
@@ -182,9 +176,10 @@ of pixels (the u16 arithmetic rounds differently); the price is 4–8 % more tim
 bigger module every band copies in.
 
 **New in v0.6:** halation is a switch in the film plug-in (default off). Switched on, the result is
-the same, pixel for pixel, as the halation plug-in followed by the film plug-in (checked in the test
-host at 8 and 32 bit); switched off, the same as v0.5.1. The halation stage now uses the film's
-Input Space and works on grayscale documents too (both also in the separate plug-in, 0.4.2).
+the same, pixel for pixel, as the former separate halation plug-in followed by the film plug-in
+(checked in the test host at 8 and 32 bit; that plug-in was dropped after v0.8.0); switched off,
+the same as v0.5.1. The halation stage now uses the film's Input Space and works on grayscale
+documents too.
 
 **New in v0.8: eleven more films.** Three new things in the model:
 
@@ -274,8 +269,6 @@ host side would help every plug-in without a change here.
 - Input space set by hand (no profile information in the plug-in ABI). 32-bit documents are taken
   as linear with the chosen primaries; the film itself saturates at +6 stops, so values above 1.0
   survive only in the share Color and Tone leave to the original.
-- The separate halation plug-in takes the document as sRGB (the film plug-in's own stage knows the
-  Input Space; the difference only moves the threshold a little).
 - RGB and Grayscale only.
 - Without measurements of real scans or prints, the look is the datasheets plus the stated
   model, not a copy of a specific lab's output.
@@ -285,16 +278,16 @@ host side would help every plug-in without a change here.
 | Path | What |
 |---|---|
 | `dist/` | the built plug-ins (`./build.sh`; not in the repository, published as release downloads) |
-| `plugin/`, `halation/` | Rust sources of the two plug-ins (`no_std`, no imports) |
-| `common/` | what both share, compiled into each: ABI glue, parameter reader, table lookups, and the halation stage itself (`halation.rs`) |
+| `plugin/` | the plug-in's Rust source (`no_std`, no imports) |
+| `common/` | its building blocks: ABI glue, parameter reader, table lookups, and the halation stage (`halation.rs`) |
 | `data/pdf/` | the manufacturer datasheets – **not in the repository** (see Licence). `./build.sh --data` needs them here, under the file names in `data/tools/specs.py`; the publication numbers are in the film table above. The VISION3 200T and 50D sheets used are Kodak's Spanish editions (vector PDFs) |
 | `data/tools/` | `pagesummary.py`/`pdfpaths.py` (inspect a page), `specs.py` (where each curve is), `digitize.py`, `film_data.py`, `check_specs.py` (plots into `data/check/`) |
 | `data/films/*.json` | the digitized film data the model reads (`char_dev` / `char_push`: the other development times and push curves, `dev_for_push`: which time each push level uses); `status.json` the status M/A densitometer curves |
 | `data/check/` | plots of every digitized curve over the datasheet page, for checking (`check_specs.py`; not in the repository, as they contain the pages) |
 | `model/film_model_v2.py` | the film simulation → `lut/<film>.lut` and `_pull1` / `_push1` / `_push2` (`--push-only` bakes just those, `--preview` writes comparisons) |
-| `model/make_tables.py` | decode tables (`tables.bin`, `srgb.bin`), Adobe RGB tables, grain texture |
+| `model/make_tables.py` | decode tables (`tables.bin`), Adobe RGB tables, grain texture |
 | `model/export_cube.py` | the same look as standard `.cube` LUTs → `cube/` (Portrait 400 shipped; any film by its model key, named by its menu label) |
-| `harness/` | test host mirroring PhotoCraft's plug-in host; `cargo test --release` there checks the plug-ins in `dist/` (Strength 0 is the identity, Strength 50 has no step at black, push/pull order the mid-tone contrast and keep 18 % grey, the slide films are neutral at grey, 32-bit headroom, every film and push level at every depth, halation idle without highlights, Halation switch = the two plug-ins in sequence) |
+| `harness/` | test host mirroring PhotoCraft's plug-in host; `cargo test --release` there checks the plug-in in `dist/` (Strength 0 is the identity, Strength 50 has no step at black, push/pull order the mid-tone contrast and keep 18 % grey, the slide films are neutral at grey, 32-bit headroom, every film and push level at every depth, halation idle without highlights, Halation glows red around highlights) |
 | `build.sh` | build and test (`--data` re-digitizes and re-bakes, `--test IMG` runs every film in the test host) |
 
 ## Licence

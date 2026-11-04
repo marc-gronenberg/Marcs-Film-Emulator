@@ -1,7 +1,6 @@
 //! The halation glow: the red-orange glow colour film gets around bright highlights, when light
 //! passes the emulsion, reflects off the film base and re-exposes the red (and a little of the
-//! green) layer. Used by the film plug-in as a switchable stage before the film, and by the
-//! stand-alone halation plug-in.
+//! green) layer. The film plug-in's switchable stage before the film.
 //!
 //! The glow is soft and wide, so it is computed at 1/4 resolution: a highlight map of the whole
 //! band (including the overlap, sampling every other pixel), three box blurs (≈ Gaussian), then

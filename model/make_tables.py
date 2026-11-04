@@ -6,7 +6,6 @@
                       enc[4097]     linear -> sRGB (v = i/4096)
                       log2m[257]    log2(1 + i/256), for log2 from a float's exponent and mantissa
                       u16base[65536] shaper coordinate of each 16-bit sRGB level (exposure 0)
-  lut/srgb.bin      little-endian f32: odec[4097] | enc[4097] (the halation plug-in)
   lut/adobe.bin     little-endian f32: adec[4097] (Adobe RGB (1998) -> linear, v = i/4096),
                     aenc[4097] (linear -> Adobe RGB); gamma 563/256
   lut/grain1024.bin 1024 x 1024 x 3 signed bytes: tileable colour-negative grain (unit spread
@@ -42,7 +41,6 @@ def tables():
     v8 = np.arange(256) / 255.0
     v = np.arange(4097) / 4096.0
     srgb = [srgb_decode(v), srgb_encode(v)]
-    np.concatenate(srgb).astype("<f4").tofile(os.path.join(OUT, "srgb.bin"))
     parts = [shaper(srgb_decode(v8))] + srgb + [np.log2(1 + np.arange(257) / 256), shaper(srgb_decode(np.arange(65536) / 65535.0))]
     data = np.concatenate(parts).astype("<f4")
     path = os.path.join(OUT, "tables.bin")

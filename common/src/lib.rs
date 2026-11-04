@@ -1,7 +1,7 @@
-//! Shared by both Marcs Film Emulator plug-ins (`plugin/`, `halation/`): the PhotoCraft plug-in ABI v1 glue,
+//! The plug-in's building blocks (`plugin/` uses them): the PhotoCraft plug-in ABI v1 glue,
 //! the no-allocation JSON parameter reader and the table lookups. `no_std`, no imports.
 //!
-//! Each plug-in keeps its own exported `pc_abi_version`, `pc_manifest`, `pc_alloc`, `pc_filter`
+//! The plug-in keeps its own exported `pc_abi_version`, `pc_manifest`, `pc_alloc`, `pc_filter`
 //! and panic handler (they must live in the cdylib itself); they call in here.
 #![no_std]
 

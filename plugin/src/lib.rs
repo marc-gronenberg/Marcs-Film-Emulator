@@ -8,8 +8,8 @@
 //! plug-in only decodes each pixel to that log-exposure coordinate (static tables), interpolates
 //! the LUT (tetrahedral; 8-bit colours are cached per band) and adds grain (a static, tileable
 //! grain texture addressed in document coordinates, weighted to the mid-tones). Before the film,
-//! a switchable halation stage (`common/src/halation.rs`, also a plug-in of its own in
-//! `halation/`) adds the glow around highlights; it needs neighbouring pixels, so every band
+//! a switchable halation stage (`common/src/halation.rs`) adds the glow around highlights; it
+//! needs neighbouring pixels, so every band
 //! comes with a 96 px overlap and the film runs on the inner area only.
 //!
 //! Documents in Display P3 or Adobe RGB are converted to linear sRGB for the film and back
@@ -20,7 +20,7 @@
 //! work, no bounds checks in the pixel loop, one specialised loop per pixel layout, a colour cache.
 //!
 //! `no_std`, no imports, no allocator. The ABI glue, parameter reader and table lookups are in
-//! `common/` (shared with the halation plug-in).
+//! `common/`.
 #![no_std]
 
 use emulsion_common::halation::{Glow, halation};
