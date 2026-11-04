@@ -12,6 +12,23 @@ it separately.
 the whole plug-in. In PhotoCraft: **Filter › Plug-ins › Install Plug-in…**, then **Filter › Plug-ins ›
 Marcs Film Emulator…**. All versions: [Releases](https://github.com/marc-gronenberg/Marcs-Film-Emulator/releases).
 
+## Comparisons
+
+Default settings (Normal, Strength 100, Grain 35; Tungsten 800 with Halation on), rendered with the
+plug-in itself. Every film appears at least once.
+
+![Portrait: Original, Portrait 160, Portrait 400, Soft 400, Everyday 200, Cine 250D, Chrome 100, Mono 400](docs/portrait.jpg)
+
+![Night street: Original, Cine 500T, Tungsten 800, Cine 200T, Street 400, Portrait 800, Snapshot 400, Mono 3200](docs/street.jpg)
+
+![Landscape: Original, Vivid 100, Vivid Chrome 100, Chrome 100, Everyday 200, Snapshot 400, Cine 50D, Mono 100](docs/landscape.jpg)
+
+![Rooster: Original, Portrait 400, Everyday 200, Vivid 100, Soft 400, Cine 250D, Mono 125, Mono 400 T](docs/rooster.jpg)
+
+Photos: [Mitchell Orr](https://unsplash.com/@mitchorr), [Alex Knight](https://unsplash.com/@agk42) and
+[Seb Zurcher](https://unsplash.com/@seb_zr) on [Unsplash](https://unsplash.com/license); rooster by
+dendoktoor on [Pixabay](https://pixabay.com/service/license-summary/).
+
 ## The plug-ins
 
 | File | Menu entry | What it does |
@@ -289,3 +306,6 @@ The manufacturer datasheets (© Kodak Alaris / Eastman Kodak Company, FUJIFILM C
 Technology / ILFORD) are **not** part of this repository, nor are page images or plots drawn over
 them, and this licence grants no rights in them. Product names are trademarks of their owners; the
 dropdown uses neutral names for that reason.
+
+The photos in `docs/` are not under the MIT licence: they are used under the Unsplash License and
+the Pixabay Content License (photographers credited under Comparisons).
