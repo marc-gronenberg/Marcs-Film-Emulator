@@ -14,7 +14,7 @@ Marcs Film Emulator…**. All versions: [Releases](https://github.com/marc-grone
 ## Comparisons
 
 Default settings (Normal, Strength 100, Grain 35; Tungsten 800 with Halation on), rendered with the
-plug-in itself. Every film appears at least once.
+plug-in itself, two per row so each image is large enough to judge. Every film appears at least once.
 
 ![Portrait: Original, Portrait 160, Portrait 400, Soft 400, Everyday 200, Cine 250D, Chrome 100, Mono 400](docs/portrait.jpg)
 
