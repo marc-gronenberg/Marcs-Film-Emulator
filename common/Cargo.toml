@@ -1,0 +1,12 @@
+[package]
+name = "emulsion-common"
+description = "What both Marcs Film Emulator plug-ins share: the PhotoCraft plug-in ABI v1 glue, the parameter reader and the table lookups"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Compiled into each plug-in; not part of any workspace.
+[workspace]
+
+[lib]
+path = "src/lib.rs"

@@ -1,0 +1,23 @@
+[package]
+name = "emulsion-film"
+description = "Marcs Film Emulator: film looks from datasheet-based spectral simulation for PhotoCraft (WebAssembly plug-in ABI v1)"
+version = "0.6.0"
+edition = "2024"
+publish = false
+
+# Builds for wasm32-unknown-unknown only; not part of any workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+emulsion-common = { path = "../common" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

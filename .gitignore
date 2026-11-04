@@ -1,0 +1,13 @@
+target/
+.DS_Store
+
+# manufacturer datasheets and anything rendered from them (copyright of the manufacturers)
+data/pdf/
+data/png/
+data/img2383/
+data/check/
+
+# previews with photos of unclear licence, test renders
+preview.jpg
+preview/
+dist/test-*.png
