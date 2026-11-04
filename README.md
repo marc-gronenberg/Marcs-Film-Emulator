@@ -276,8 +276,10 @@ host side would help every plug-in without a change here.
 
 ## Licence
 
-Not chosen yet. The manufacturer datasheets (© Kodak Alaris / Eastman Kodak Company, FUJIFILM
-Corporation, Harman Technology / ILFORD) are **not** part of this repository, nor are page images
-or plots drawn over them. What is here is the curves digitized from them, as numbers
-(`data/films/*.json`), the look tables computed from those, and the code. Product names are
-trademarks of their owners; the dropdown uses neutral names for that reason.
+MIT (see `LICENSE`): the code, the digitized curves (`data/films/*.json`), the look tables computed
+from them and the built plug-ins.
+
+The manufacturer datasheets (© Kodak Alaris / Eastman Kodak Company, FUJIFILM Corporation, Harman
+Technology / ILFORD) are **not** part of this repository, nor are page images or plots drawn over
+them, and this licence grants no rights in them. Product names are trademarks of their owners; the
+dropdown uses neutral names for that reason.
