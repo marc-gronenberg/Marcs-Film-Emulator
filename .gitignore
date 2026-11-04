@@ -11,3 +11,6 @@ data/check/
 preview.jpg
 preview/
 dist/test-*.png
+
+# built plug-ins: published as GitHub release assets
+dist/

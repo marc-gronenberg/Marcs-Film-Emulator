@@ -6,6 +6,12 @@ each simulated from the curves of its manufacturer datasheet, with push/pull pro
 (switchable) and film grain. The halation is also available as a plug-in of its own, for stacking
 it separately.
 
+## Download
+
+**[⬇ marcs-film-emulator.wasm](https://github.com/marc-gronenberg/Marcs-Film-Emulator/releases/latest/download/marcs-film-emulator.wasm)** (28 MB) – that one file is
+the whole plug-in. In PhotoCraft: **Filter › Plug-ins › Install Plug-in…**, then **Filter › Plug-ins ›
+Marcs Film Emulator…**. All versions: [Releases](https://github.com/marc-gronenberg/Marcs-Film-Emulator/releases).
+
 ## The plug-ins
 
 | File | Menu entry | What it does |
@@ -261,7 +267,7 @@ host side would help every plug-in without a change here.
 
 | Path | What |
 |---|---|
-| `dist/` | the plug-ins |
+| `dist/` | the built plug-ins (`./build.sh`; not in the repository, published as release downloads) |
 | `plugin/`, `halation/` | Rust sources of the two plug-ins (`no_std`, no imports) |
 | `common/` | what both share, compiled into each: ABI glue, parameter reader, table lookups, and the halation stage itself (`halation.rs`) |
 | `data/pdf/` | the manufacturer datasheets – **not in the repository** (see Licence). `./build.sh --data` needs them here, under the file names in `data/tools/specs.py`; the publication numbers are in the film table above. The VISION3 200T and 50D sheets used are Kodak's Spanish editions (vector PDFs) |
