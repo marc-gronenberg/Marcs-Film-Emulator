@@ -406,6 +406,39 @@ mod tests {
         }
     }
 
+    /// 8-bit documents go through a per-band colour cache (direct-mapped, keyed by the samples'
+    /// bits), 16-bit documents take every pixel through the LUT. The same colours must come out
+    /// the same either way: here with more distinct colours than the cache has slots (so slots
+    /// get replaced), every colour a second time later in the band (hits and replaced slots), and
+    /// black first (a zeroed slot must not pass for it).
+    #[test]
+    fn cached_colours_match_the_uncached_path() {
+        let film = host("marcs-film-emulator.wasm");
+        let (w, h) = (512, 256);
+        let mut s = 0x2545_f491u32;
+        let mut level = || {
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            (s >> 8 & 255) as f32 / 255.0
+        };
+        let mut half: Vec<[f32; 4]> = vec![[0.0, 0.0, 0.0, 1.0], [1.0, 1.0, 1.0, 1.0]];
+        while half.len() < w * h / 2 {
+            half.push([level(), level(), level(), 1.0]);
+        }
+        let orig: Vec<f32> = half.iter().chain(half.iter().rev()).flatten().copied().collect();
+        for params in [r#"{"grain":0}"#, r#"{"strength":60,"grain":0}"#, r#"{"film":"Mono 400","inputSpace":"Display P3","grain":0}"#] {
+            let (mut cached, mut direct) = (orig.clone(), orig.clone());
+            run_band(&film, &mut cached, w, h, 0, 8, params);
+            run_band(&film, &mut direct, w, h, 0, 16, params);
+            let worst = cached.iter().zip(&direct).map(|(a, b)| (a - b).abs() * 255.0).fold(0.0f32, f32::max);
+            assert!(worst <= 0.25, "{params}: 8-bit (cached) and 16-bit differ by {worst} levels");
+            let n = w * h;
+            let mirrored = (0..n / 2).all(|i| cached[i * 4..i * 4 + 4] == cached[(n - 1 - i) * 4..(n - i) * 4]);
+            assert!(mirrored, "{params}: a colour came out differently the second time");
+        }
+    }
+
     #[test]
     fn halation_leaves_an_image_without_highlights_alone() {
         let film = host("marcs-film-emulator.wasm");
