@@ -91,9 +91,11 @@ pub unsafe fn halation(buf: *mut f32, w: usize, h: usize, n: usize, alpha: bool,
 /// As `halation`; `amount` is the glow's gain, `thr` the linear threshold.
 #[inline(always)]
 unsafe fn run<const DEPTH: u32, const GREY: bool>(buf: *mut f32, w: usize, h: usize, n: usize, alpha: bool, ov: usize, dec: *const f32, enc: *const f32, amount: f32, radius: f32, thr: f32) -> i32 {
-    // 8-bit documents: decode by level (exact); encode by the nearest table entry (the host rounds
-    // the result to 8 bits anyway) from a table that covers 0..4 and so needs no clamping (a value
-    // is never negative, and never above 1 + the glow's maximum of 2.2)
+    // 8-bit documents: decode by level (exact); encode by the nearest table entry, rounded to the
+    // 8-bit level it stands for and written as the host writes a level (i / 255): the film rounds
+    // to levels anyway, and its colour cache, keyed by the samples' bits, then finds a glowing
+    // pixel's colour under the same key as everywhere else. The table covers 0..4 and so needs no
+    // clamping (a value is never negative, and never above 1 + the glow's maximum of 2.2)
     const ENC8: usize = 4 * TN + 2;
     let (lin8, enc8) = if DEPTH == 8 {
         let mem = alloc((256 * 4 + ENC8 * 4) as u32) as usize;
@@ -106,7 +108,7 @@ unsafe fn run<const DEPTH: u32, const GREY: bool>(buf: *mut f32, w: usize, h: us
                 *lin8.add(i) = lerp_tab(dec, i as f32 / 255.0);
             }
             for i in 0..ENC8 {
-                *enc8.add(i) = *enc.add(i.min(TN));
+                *enc8.add(i) = (*enc.add(i.min(TN)) * 255.0 + 0.5) as u32 as f32 / 255.0;
             }
         }
         (lin8 as *const f32, enc8 as *const f32)

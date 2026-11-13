@@ -281,19 +281,36 @@ unsafe fn grain_at(c: &Ctx, x: i32, y: i32) -> (f32, f32, f32) {
     }
 }
 
-/// One slot of the per-band colour cache (8-bit documents): the input levels and the film output,
-/// plus the pixel's grain weight. 32 bytes, so a slot address is a shift.
+/// One slot of the per-band colour cache (8-bit documents): the pixel's samples as the host passed
+/// them (their bits, so a hit needs no conversion to levels), the film output and the pixel's
+/// grain weight. 32 bytes, so a slot address is a shift.
 #[repr(C)]
 struct Slot {
-    key: u32,
+    /// the red and green samples' bits (grey documents: the grey sample's, with bit 32 set)
+    rg: u64,
+    /// the blue sample's bits + 1 (grey documents: unused). A zeroed slot therefore matches no
+    /// pixel a document can hold (only r = g = +0 with a blue of all-ones bits, a NaN).
+    b1: u32,
+    k: f32,
     r: f32,
     g: f32,
     b: f32,
-    k: f32,
-    _pad: [u32; 3],
+    _pad: u32,
 }
 
 const CACHE_BITS: u32 = 16;
+
+/// The cache slot of a key. Two multiplications: float bits differ mostly in their low mantissa
+/// bits, which the first carries into the high word and the second into the index. (Spreads photos
+/// better than v0.8.0's single multiplication of the packed levels: 22 instead of 29 % misses on a
+/// noisy portrait, 32 instead of 44 % on a noisy landscape; a band of 262 k pixels holds 30–90 k
+/// distinct colours.)
+#[inline(always)]
+fn slot_of<const GREY: bool>(rg: u64, b1: u32) -> usize {
+    let h = (rg.wrapping_mul(0x9e37_79b9_7f4a_7c15) >> 32) as u32;
+    let h = if GREY { h } else { h ^ b1 };
+    (h.wrapping_mul(0x85eb_ca6b) >> (32 - CACHE_BITS)) as usize
+}
 
 /// Grain weight of an output (sRGB-encoded): strongest in the mid-tones, as grain shows in a print.
 #[inline(always)]
@@ -322,6 +339,9 @@ struct Scaled {
 }
 
 impl Scaled {
+    /// Stands in where the grain is not scaled (never read then).
+    const UNUSED: Scaled = Scaled { col: core::ptr::null_mut(), frac: core::ptr::null_mut(), row: core::ptr::null_mut(), span: 0, i0: 0 };
+
     /// None if out of memory.
     fn new(c: &Ctx) -> Option<Scaled> {
         let x0 = c.x0 as f32 * c.gscale;
@@ -395,11 +415,11 @@ unsafe fn store<const GREY: bool>(p: *mut f32, r: f32, g: f32, b: f32) {
     }
 }
 
-/// Adds grain (gr, gg, gb) × k to an output; black-and-white films and grey documents get one
-/// grey value (the mean, scaled back to the per-channel spread).
+/// Adds grain (gr, gg, gb) × k to an output; black-and-white films and grey documents (`grey`)
+/// get one grey value (the mean, scaled back to the per-channel spread).
 #[inline(always)]
-fn add_grain<const GREY: bool>(c: &Ctx, o: (f32, f32, f32), gr: f32, gg: f32, gb: f32, k: f32) -> (f32, f32, f32) {
-    if GREY || c.mono {
+fn add_grain(grey: bool, o: (f32, f32, f32), gr: f32, gg: f32, gb: f32, k: f32) -> (f32, f32, f32) {
+    if grey {
         let v = (gr + gg + gb) * (1.25 / 3.0) * k;
         (o.0 + v, o.1 + v, o.2 + v)
     } else {
@@ -538,7 +558,18 @@ impl Pre {
 }
 
 /// 8-bit documents: a direct-mapped colour cache in front of the LUT (photos repeat 8-bit colours
-/// a lot; a hit is a few loads), grain from the tile with the weight cached alongside.
+/// a lot), grain from the tile with the weight cached alongside.
+///
+/// The interpreter's time goes by the instruction, so a hit is kept short: the key is the samples'
+/// bits as they lie in the buffer (two loads; the levels are worked out on a miss only), grain at
+/// its native size is read through a pointer that walks the tile row (the row is done in runs
+/// that end where the tile wraps), and whether the grain is grey (`MONO`: a black-and-white film)
+/// is decided outside the loop. About 50 wasm instructions per hit instead of v0.8.0's 60, and
+/// fewer misses (see `slot_of`), with the same output to the bit.
+///
+/// (Tried: a larger cache. 2^17 or 2^18 slots miss less, 18 instead of 22 % on a noisy portrait,
+/// but run no faster or slower: the fresh pages every band has to get zeroed and the cache's
+/// worse locality cost what the saved misses gain.)
 ///
 /// (Tried for 16-bit documents too, keyed by the 8-bit levels with the output's slope per input
 /// channel cached so a hit interpolates to the exact value: slower than the per-pixel path below,
@@ -546,68 +577,83 @@ impl Pre {
 /// noisy 16-bit photos miss a third of the time. Only grayscale gained.)
 ///
 /// # Safety
-/// `px` holds `w × h × CH` samples; `cache` holds 2^CACHE_BITS zeroed slots.
+/// `px` holds `w × h × CH` samples; `cache` holds 2^CACHE_BITS zeroed slots; `sc` is prepared for
+/// this band if `GRAIN` is 2.
 #[inline(always)]
-unsafe fn run8<const CH: usize, const ALPHA: bool, const GREY: bool, const GRAIN: u8, const GEN: bool>(px: *mut f32, c: &Ctx, cache: *mut Slot, pre: &Pre, sc: Option<&Scaled>) {
+unsafe fn run8<const CH: usize, const ALPHA: bool, const GREY: bool, const MONO: bool, const GRAIN: u8, const GEN: bool>(px: *mut f32, c: &Ctx, cache: *mut Slot, pre: &Pre, sc: &Scaled) {
     // GRAIN: 0 off, 1 native size (straight from the tile row), 2 scaled (prepared rows in `sc`)
     // GEN: the general path (input space, Strength) on a cache miss
-    const M: u32 = (GT - 1) as u32;
     let mut row = px;
     for y in 0..c.h {
-        let (grow, mut gx) = grain_row(c, c.y0 + y as i32);
+        let (grow, gx) = grain_row(c, c.y0 + y as i32);
         if GRAIN == 2 {
-            if let Some(sc) = sc {
-                sc.prepare_row(c, c.y0 + y as i32);
-            }
+            sc.prepare_row(c, c.y0 + y as i32);
         }
         let mut p = row;
-        for x in 0..c.w {
+        let (mut x, mut gx) = (0, gx as usize);
+        while x < c.w {
+            // a run: the rest of the row, or up to the tile's edge
+            let n = if GRAIN == 1 && c.w - x > GT - gx { GT - gx } else { c.w - x };
             unsafe {
-                if !(ALPHA && *p.add(CH - 1) <= 0.0) {
-                    // 8-bit samples are exactly i/255, so rounding gives the level (saturating cast)
-                    let (lr, lg, lb) = if GREY {
-                        let l = (*p * 255.0 + 0.5) as u32;
-                        (l, l, l)
-                    } else {
-                        ((*p * 255.0 + 0.5) as u32, (*p.add(1) * 255.0 + 0.5) as u32, (*p.add(2) * 255.0 + 0.5) as u32)
-                    };
-                    let key = lr | (lg << 8) | (lb << 16) | (1 << 24);
-                    let slot = cache.add((key.wrapping_mul(0x9e37_79b1) >> (32 - CACHE_BITS)) as usize);
-                    if (*slot).key != key {
-                        let (lr, lg, lb) = ((lr & 255) as usize, (lg & 255) as usize, (lb & 255) as usize);
-                        let o = if GEN && c.ident {
-                            // sRGB document, Strength mix: the film through the per-level tables
-                            let f = pre.film::<false>(c, lr, lg, lb);
-                            let (or, og, ob) = (*pre.lin.add(lr), *pre.lin.add(lg), *pre.lin.add(lb));
-                            finish::<GREY, false>(c, (or, og, ob), luma(or, og, ob), f)
-                        } else if GEN {
-                            general::<GREY, false>(c, *pre.lin.add(lr), *pre.lin.add(lg), *pre.lin.add(lb))
+                let end = p.add(n * CH);
+                let mut gp = grow.add(gx * 3);
+                let mut col = x;
+                while p != end {
+                    if !(ALPHA && *p.add(CH - 1) <= 0.0) {
+                        let (rg, b1) = if GREY {
+                            ((p as *const u32).read() as u64 | 1 << 32, 0)
                         } else {
-                            pre.film::<GREY>(c, lr, lg, lb)
+                            ((p as *const u64).read_unaligned(), (p.add(2) as *const u32).read().wrapping_add(1))
                         };
-                        let k = if GRAIN > 0 { grain_weight(c, if GREY { o.0 } else { 0.2126 * o.0 + 0.7152 * o.1 + 0.0722 * o.2 }) } else { 0.0 };
-                        *slot = Slot { key, r: o.0, g: o.1, b: o.2, k, _pad: [0; 3] };
-                    }
-                    let s = &*slot;
-                    if GRAIN > 0 {
-                        let (gr, gg, gb) = if GRAIN == 1 {
-                            let gp = grow.add(gx as usize * 3);
-                            (*gp as f32, *gp.add(1) as f32, *gp.add(2) as f32)
+                        let slot = cache.add(slot_of::<GREY>(rg, b1));
+                        if (*slot).rg != rg || (!GREY && (*slot).b1 != b1) {
+                            // 8-bit samples are exactly i/255, so rounding gives the level
+                            // (saturating cast)
+                            let level = |v: f32| ((v * 255.0 + 0.5) as u32 & 255) as usize;
+                            let (lr, lg, lb) = if GREY {
+                                let l = level(*p);
+                                (l, l, l)
+                            } else {
+                                (level(*p), level(*p.add(1)), level(*p.add(2)))
+                            };
+                            let o = if GEN && c.ident {
+                                // sRGB document, Strength mix: the film through the per-level tables
+                                let f = pre.film::<false>(c, lr, lg, lb);
+                                let (or, og, ob) = (*pre.lin.add(lr), *pre.lin.add(lg), *pre.lin.add(lb));
+                                finish::<GREY, false>(c, (or, og, ob), luma(or, og, ob), f)
+                            } else if GEN {
+                                general::<GREY, false>(c, *pre.lin.add(lr), *pre.lin.add(lg), *pre.lin.add(lb))
+                            } else {
+                                pre.film::<GREY>(c, lr, lg, lb)
+                            };
+                            let k = if GRAIN > 0 { grain_weight(c, if GREY { o.0 } else { 0.2126 * o.0 + 0.7152 * o.1 + 0.0722 * o.2 }) } else { 0.0 };
+                            (*slot).rg = rg;
+                            (*slot).b1 = b1;
+                            (*slot).k = k;
+                            (*slot).r = o.0;
+                            (*slot).g = o.1;
+                            (*slot).b = o.2;
+                        }
+                        let s = &*slot;
+                        if GRAIN > 0 {
+                            let (gr, gg, gb) = if GRAIN == 1 { (*gp as f32, *gp.add(1) as f32, *gp.add(2) as f32) } else { sc.at(col) };
+                            let (r, g, b) = add_grain(GREY || MONO, (s.r, s.g, s.b), gr, gg, gb, s.k);
+                            store::<GREY>(p, r, g, b);
                         } else {
-                            match sc {
-                                Some(sc) => sc.at(x),
-                                None => (0.0, 0.0, 0.0),
-                            }
-                        };
-                        let (r, g, b) = add_grain::<GREY>(c, (s.r, s.g, s.b), gr, gg, gb, s.k);
-                        store::<GREY>(p, r, g, b);
-                    } else {
-                        store::<GREY>(p, s.r, s.g, s.b);
+                            store::<GREY>(p, s.r, s.g, s.b);
+                        }
                     }
+                    if GRAIN == 1 {
+                        gp = gp.add(3);
+                    }
+                    if GRAIN == 2 {
+                        col += 1;
+                    }
+                    p = p.add(CH);
                 }
-                gx = (gx + 1) & M;
-                p = p.add(CH);
             }
+            x += n;
+            gx = 0;
         }
         row = unsafe { row.add(c.stride) };
     }
@@ -686,12 +732,12 @@ unsafe fn run_hi<const CH: usize, const ALPHA: bool, const GREY: bool, const DEP
                         if DEPTH == 32 {
                             let (er, eg, eb) = e;
                             let k = grain_weight(c, if GREY { er } else { luma(er, eg, eb) });
-                            let (dr, dg, db) = add_grain::<GREY>(c, (0.0, 0.0, 0.0), gr, gg, gb, k);
+                            let (dr, dg, db) = add_grain(GREY || c.mono, (0.0, 0.0, 0.0), gr, gg, gb, k);
                             let through = |v: f32, e: f32, d: f32| if v < 1.0 { lerp_tab(odec, e + d) } else { v + d * slope1 };
                             (r, g, b) = (through(r, er, dr), through(g, eg, dg), through(b, eb, db));
                         } else {
                             let k = grain_weight(c, if GREY { r } else { luma(r, g, b) });
-                            (r, g, b) = add_grain::<GREY>(c, (r, g, b), gr, gg, gb, k);
+                            (r, g, b) = add_grain(GREY || c.mono, (r, g, b), gr, gg, gb, k);
                         }
                     }
                     store::<GREY>(p, r, g, b);
@@ -818,24 +864,39 @@ pub unsafe extern "C" fn pc_filter(buf: *mut f32, len: u32, width: u32, height: 
         } else {
             None
         };
+        let sc = sc.as_ref().unwrap_or(&Scaled::UNUSED);
+        let kind = if !grain { 0 } else if ctx.nearest { 1 } else { 2 };
         macro_rules! go {
             ($ch:literal, $a:literal, $g:literal) => {
-                match (if !grain { 0 } else if ctx.nearest { 1 } else { 2 }, general_path) {
-                    (1, true) => run8::<$ch, $a, $g, 1, true>(buf, &ctx, cache, &pre, sc.as_ref()),
-                    (1, false) => run8::<$ch, $a, $g, 1, false>(buf, &ctx, cache, &pre, sc.as_ref()),
-                    (2, true) => run8::<$ch, $a, $g, 2, true>(buf, &ctx, cache, &pre, sc.as_ref()),
-                    (2, false) => run8::<$ch, $a, $g, 2, false>(buf, &ctx, cache, &pre, sc.as_ref()),
-                    (_, true) => run8::<$ch, $a, $g, 0, true>(buf, &ctx, cache, &pre, sc.as_ref()),
-                    (_, false) => run8::<$ch, $a, $g, 0, false>(buf, &ctx, cache, &pre, sc.as_ref()),
+                match (kind, general_path) {
+                    (1, true) => run8::<$ch, $a, $g, false, 1, true>(buf, &ctx, cache, &pre, sc),
+                    (1, false) => run8::<$ch, $a, $g, false, 1, false>(buf, &ctx, cache, &pre, sc),
+                    (2, true) => run8::<$ch, $a, $g, false, 2, true>(buf, &ctx, cache, &pre, sc),
+                    (2, false) => run8::<$ch, $a, $g, false, 2, false>(buf, &ctx, cache, &pre, sc),
+                    (_, true) => run8::<$ch, $a, $g, false, 0, true>(buf, &ctx, cache, &pre, sc),
+                    (_, false) => run8::<$ch, $a, $g, false, 0, false>(buf, &ctx, cache, &pre, sc),
+                }
+            };
+        }
+        // a black-and-white film on a colour document, grain on: grey grain
+        macro_rules! go_mono {
+            ($ch:literal, $a:literal) => {
+                match (kind, general_path) {
+                    (1, true) => run8::<$ch, $a, false, true, 1, true>(buf, &ctx, cache, &pre, sc),
+                    (1, false) => run8::<$ch, $a, false, true, 1, false>(buf, &ctx, cache, &pre, sc),
+                    (_, true) => run8::<$ch, $a, false, true, 2, true>(buf, &ctx, cache, &pre, sc),
+                    (_, false) => run8::<$ch, $a, false, true, 2, false>(buf, &ctx, cache, &pre, sc),
                 }
             };
         }
         unsafe {
-            match (n, alpha, grey) {
-                (4, true, false) => go!(4, true, false),
-                (3, false, false) => go!(3, false, false),
-                (2, true, true) => go!(2, true, true),
-                (1, false, true) => go!(1, false, true),
+            match (n, alpha, grey, ctx.mono && grain) {
+                (4, true, false, false) => go!(4, true, false),
+                (4, true, false, true) => go_mono!(4, true),
+                (3, false, false, false) => go!(3, false, false),
+                (3, false, false, true) => go_mono!(3, false),
+                (2, true, true, _) => go!(2, true, true),
+                (1, false, true, _) => go!(1, false, true),
                 _ => return ERR_MODE,
             }
         }

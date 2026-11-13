@@ -253,6 +253,30 @@ bit, but only about 20 % less wall time. The rest is memory traffic in the inter
 loads and stores per pixel, like the film's cache hit), and that does not shrink without touching
 fewer pixels.
 
+**After v0.8.0: a shorter 8-bit loop.** Split per band (1024 × 256 px, 8-bit, default settings, one
+slow cloud core), a run was 21 % setting up the fresh instance (the 28 MB module copied in), 12 %
+copying the band in and out, 67 % the filter itself, where a cache hit cost about 180 ns and a miss
+about 400 ns more. The loop is now keyed by the samples' bits as they lie in the buffer (the levels
+are worked out on a miss only), with a hash that spreads photos better (22 instead of 29 % misses
+on a noisy portrait, 32 instead of 44 % on a noisy landscape), reads native-size grain through a
+moving pointer and decides grey grain outside the loop: about 50 wasm instructions per hit instead
+of 60. The output is the same to the bit (62 combinations of layout, grain, Strength, input space,
+film, push and halation compared against v0.8.0). Whole runs in the test host, 2 threads, per
+24 MP:
+
+| 8-bit, sRGB | v0.8.0 | now |
+|---|---|---|
+| default, smooth photo | 4.7 s | 3.9 s |
+| default, noisy photo | 6.1 s | 4.9 s |
+| Strength 70, smooth / noisy | 6.5 / 10.8 s | 4.7 / 7.0 s |
+| Mono 400, smooth / noisy | 4.8 / 6.3 s | 4.2 / 5.3 s |
+
+(Test photos: the originals of the comparison images above, enlarged four times, the noisy ones
+with σ = 1 level of noise added.) 16- and 32-bit documents are unchanged. Tried and dropped along
+the way: a larger cache. 2^17 or 2^18 slots miss less (18 instead of 22 % on the noisy portrait)
+but run no faster or slower, because every band's fresh pages have to be zeroed and the bigger
+cache has worse locality.
+
 **Tried and dropped: a colour cache for 16-bit documents.** Keyed by 12-bit levels it hardly ever
 hits: in a 16-bit photo with ordinary sensor noise over 90 % of the pixels are distinct colours
 (measured: 1.56 M distinct of 1.7 M pixels at σ = 0.4/255, against 0.46 M for the same photo as an
@@ -287,7 +311,7 @@ host side would help every plug-in without a change here.
 | `model/film_model_v2.py` | the film simulation → `lut/<film>.lut` and `_pull1` / `_push1` / `_push2` (`--push-only` bakes just those, `--preview` writes comparisons) |
 | `model/make_tables.py` | decode tables (`tables.bin`), Adobe RGB tables, grain texture |
 | `model/export_cube.py` | the same look as standard `.cube` LUTs → `cube/` (Portrait 400 shipped; any film by its model key, named by its menu label) |
-| `harness/` | test host mirroring PhotoCraft's plug-in host; `cargo test --release` there checks the plug-in in `dist/` (Strength 0 is the identity, Strength 50 has no step at black, push/pull order the mid-tone contrast and keep 18 % grey, the slide films are neutral at grey, 32-bit headroom, every film and push level at every depth, halation idle without highlights, Halation glows red around highlights) |
+| `harness/` | test host mirroring PhotoCraft's plug-in host; `cargo test --release` there checks the plug-in in `dist/` (Strength 0 is the identity, Strength 50 has no step at black, push/pull order the mid-tone contrast and keep 18 % grey, the slide films are neutral at grey, 32-bit headroom, every film and push level at every depth, the 8-bit colour cache gives what the uncached 16-bit path gives, halation idle without highlights, Halation glows red around highlights) |
 | `build.sh` | build and test (`--data` re-digitizes and re-bakes, `--test IMG` runs every film in the test host) |
 
 ## Licence
